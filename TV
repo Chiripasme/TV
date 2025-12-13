@@ -1,0 +1,460 @@
+<!-- Código HTML completo con soporte para ejecutar ES-DE -->
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Launcher Estilo TV</title>
+  <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: #222;
+      color: #fff;
+      font-family: sans-serif;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+      padding: 30px;
+      gap: 20px;
+    }
+
+    .apps-row {
+      display: flex;
+      gap: 10px;
+      overflow-x: auto;
+      scroll-behavior: smooth;
+      padding: 20px;
+      flex-shrink: 0;
+      justify-content: flex-start;
+    }
+
+    .apps-row::-webkit-scrollbar { display: none; }
+
+    .iptv-row {
+      display: flex !important;
+      flex-wrap: wrap;
+      gap: 10px;
+      overflow-y: auto;
+      max-height: 400px;
+      padding: 20px;
+      justify-content: flex-start;
+    }
+
+    .iptv-row::-webkit-scrollbar { display: none; }
+
+    .item {
+      width: 180px;
+      height: 100px;
+      background: #ffffff00;
+      border-radius: 15px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: transform 0.3s ease, box-shadow 0.3s ease;
+      flex-shrink: 0;
+      padding: 10px;
+      overflow: hidden;
+    }
+
+    .item img {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+      border-radius: 10px;
+    }
+
+    .item.selected {
+      transform: scale(1.2);
+      box-shadow: 0 0 20px #00f;
+      gap: 20px;
+      padding: 10px;
+    }
+
+    .preview-container {
+      position: relative;
+      width: 700px;
+      height: 400px;
+      background: #111;
+      border-radius: 10px;
+      box-shadow: 0 0 5px rgb(4, 0, 255);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      margin: 0 auto;
+      overflow: hidden;
+      flex-shrink: 0;
+    }
+
+    .preview-container video {
+      width: 98%;
+      height: 100%;
+      object-fit: fill;
+      border-radius: 10px;
+      background: black;
+    }
+
+    .preview-image {
+      position: absolute;
+      width: 98%;
+      height: 100%;
+      object-fit: contain;
+      border-radius: 10px;
+      top: 0;
+      left: 50%;
+      transform: translateX(-50%);
+      display: none;
+      pointer-events: none;
+      user-select: none;
+      background: #111;
+    }
+
+    .list-selector {
+      width: 250px;
+      padding: 10px;
+      border-radius: 10px;
+      background: #111;
+      color: #0ff;
+      font-size: 1rem;
+      font-weight: bold;
+      border: 2px solid #00f;
+      outline: none;
+      align-self: center;
+      text-align: center;
+    }
+
+    .channel-info {
+      position: absolute;
+      top: 20px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: rgba(0,0,0,0.7);
+      border-radius: 10px;
+      padding: 8px 15px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.8s ease;
+      color: #fff;
+      font-size: 1.3rem;
+      font-weight: bold;
+      z-index: 10;
+    }
+
+    .channel-info img {
+      width: 40px;
+      height: 40px;
+      object-fit: contain;
+      border-radius: 5px;
+    }
+
+    .channel-info.show {
+      opacity: 1;
+      pointer-events: auto;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="apps-row" id="appsRow"></div>
+
+  <div class="preview-container" id="previewContainer">
+    <img id="previewImage" class="preview-image" src="" alt="Vista previa" />
+    <video id="previewVideo" autoplay muted controls></video>
+
+    <div id="channelInfo" class="channel-info">
+      <img id="channelLogo" src="" alt="Logo Canal" />
+      <span id="channelName"></span>
+    </div>
+  </div>
+
+  <select id="listSelector" class="list-selector"></select>
+  <div class="iptv-row" id="iptvRow"></div>
+
+  <audio id="clickSound" src="click.mp3" preload="auto"></audio>
+
+  <script>
+    const appRow = document.getElementById('appsRow');
+    const iptvRow = document.getElementById('iptvRow');
+    const previewContainer = document.getElementById('previewContainer');
+    const video = document.getElementById('previewVideo');
+    const previewImage = document.getElementById('previewImage');
+    const clickSound = document.getElementById('clickSound');
+    const listSelector = document.getElementById('listSelector');
+    const channelInfo = document.getElementById('channelInfo');
+    const channelLogo = document.getElementById('channelLogo');
+    const channelName = document.getElementById('channelName');
+
+    let infoTimeout;
+
+    const apps = [
+      { title: 'YouTube TV', action: 'https://www.youtube.com/tv', preview: 'https://upload.wikimedia.org/wikipedia/commons/b/b8/YouTube_Logo_2017.svg' },
+      { title: 'Amazon Prime', action: 'https://www.primevideo.com', preview: 'https://upload.wikimedia.org/wikipedia/commons/7/72/Amazon_Prime_logo_%282022%29.svg' },
+      { title: 'ES-DE', action: 'es-de://ejecutar', preview: 'https://impro.usercontent.one/appid/oneComWsb/domain/es-de.org/media/es-de.org/onewebmedia/ES-DE_logo.png' },
+      { title: 'Netflix', action: 'https://www.netflix.com/es/', preview: 'https://upload.wikimedia.org/wikipedia/commons/0/08/Netflix_2015_logo.svg' },
+      { title: 'YouTube Shorts', action: 'https://www.youtube.com/shorts', preview: 'https://upload.wikimedia.org/wikipedia/commons/f/fc/Youtube_shorts_icon.svg' }
+    ];
+
+    apps.forEach(app => {
+      const div = document.createElement('div');
+      div.className = 'item';
+      div.dataset.action = app.action;
+      div.dataset.preview = app.preview;
+      div.innerHTML = `<img src="${app.preview}" alt="${app.title}" />`;
+      appRow.appendChild(div);
+    });
+
+    const baseURL = 'https://raw.githubusercontent.com/Chiripasme/list/main/';
+    const lists = ['canales.m3u'];
+    for (let i = 1; i <= 40; i++) lists.push(`${i}.m3u`);
+
+    lists.forEach((list, index) => {
+      const option = document.createElement('option');
+      option.value = baseURL + list;
+      option.textContent = list;
+      if (index === 0) option.selected = true;
+      listSelector.appendChild(option);
+    });
+
+    let iptvList = [];
+    let hls = null;
+    let lastPreview = '';
+    let selectedIndexApps = 0;
+    let selectedIndexIptv = 0;
+    let inApps = true;
+
+    async function loadIptv(url) {
+      try {
+        const response = await fetch(url);
+        const text = await response.text();
+        parseM3U(text);
+        createIptvItems();
+        updateSelection();
+      } catch (err) {}
+    }
+
+    function parseM3U(text) {
+      iptvList = [];
+      const lines = text.split('\n').map(l => l.trim()).filter(l => l !== '');
+      let current = {};
+      for (const line of lines) {
+        if (line.startsWith('#EXTINF:')) {
+          const match = line.match(/tvg-logo="([^"]+)".*,\s*(.*)/);
+          if (match) {
+            current.logo = match[1];
+            current.name = match[2];
+          }
+        } else if (line.startsWith('http')) {
+          current.url = line;
+          iptvList.push({ ...current });
+          current = {};
+        }
+      }
+    }
+
+    function createIptvItems() {
+      iptvRow.innerHTML = '';
+      iptvList.forEach(channel => {
+        const div = document.createElement('div');
+        div.className = 'item';
+        div.dataset.url = channel.url;
+        div.dataset.logo = channel.logo;
+        div.dataset.name = channel.name;
+        div.innerHTML = `<img src="${channel.logo}" alt="${channel.name}" />`;
+        iptvRow.appendChild(div);
+      });
+    }
+
+    function updateSelection() {
+      document.querySelectorAll('.item.selected').forEach(el => el.classList.remove('selected'));
+      if (inApps) {
+        const appsItems = appRow.querySelectorAll('.item');
+        if (appsItems.length > 0) {
+          const sel = appsItems[selectedIndexApps];
+          sel.classList.add('selected');
+          showPreview(sel.dataset.preview);
+          hideChannelInfo();
+        }
+      } else {
+        const iptvItems = iptvRow.querySelectorAll('.item');
+        if (iptvItems.length > 0) {
+          const sel = iptvItems[selectedIndexIptv];
+          sel.classList.add('selected');
+          showPreviewChannel(sel.dataset.url, sel.dataset.logo, sel.dataset.name);
+        }
+      }
+    }
+
+    function showPreview(previewImgUrl) {
+      if (lastPreview === previewImgUrl) return;
+      lastPreview = previewImgUrl;
+      previewImage.src = previewImgUrl;
+      previewImage.style.display = 'block';
+      previewContainer.style.display = 'flex';
+      video.style.display = 'none';
+      stopVideo();
+    }
+
+    function showPreviewChannel(url, logo, name) {
+      previewImage.style.display = 'none';
+      previewContainer.style.display = 'flex';
+      video.style.display = 'block';
+      playVideo(url);
+      showChannelInfo(logo, name);
+    }
+
+    function showChannelInfo(logo, name) {
+      channelLogo.src = logo;
+      channelName.textContent = name;
+      channelInfo.classList.add('show');
+      if (infoTimeout) clearTimeout(infoTimeout);
+      infoTimeout = setTimeout(() => {
+        channelInfo.classList.remove('show');
+      }, 3000);
+    }
+
+    function hideChannelInfo() {
+      channelInfo.classList.remove('show');
+      if (infoTimeout) clearTimeout(infoTimeout);
+    }
+
+    function playVideo(url) {
+      if (hls) { hls.destroy(); hls = null; }
+      video.pause();
+      video.src = '';
+
+      const isHls = url.toLowerCase().includes('.m3u8');
+
+      if (isHls) {
+        if (Hls.isSupported()) {
+          hls = new Hls();
+          hls.loadSource(url);
+          hls.attachMedia(video);
+          hls.on(Hls.Events.MANIFEST_PARSED, () => video.play().catch(()=>{}));
+        } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+          video.src = url;
+          video.play().catch(()=>{});
+        }
+        return;
+      }
+
+      video.src = url;
+      video.play().catch(()=>{});
+    }
+
+    function stopVideo() {
+      if (hls) { hls.destroy(); hls = null; }
+      video.pause();
+      video.src = '';
+    }
+
+    listSelector.addEventListener('change', e => {
+      stopVideo();
+      loadIptv(e.target.value);
+    });
+
+    const IPtvItemsPerRow = 9;
+
+    document.addEventListener('keydown', e => {
+      const appsCount = appRow.querySelectorAll('.item').length;
+      const iptvCount = iptvRow.querySelectorAll('.item').length;
+
+      if (e.key === 'ArrowRight') {
+        if (inApps) {
+          if (selectedIndexApps < appsCount - 1) selectedIndexApps++;
+        } else {
+          if (selectedIndexIptv < iptvCount - 1) selectedIndexIptv++;
+        }
+      } else if (e.key === 'ArrowLeft') {
+        if (inApps) {
+          if (selectedIndexApps > 0) selectedIndexApps--;
+        } else {
+          if (selectedIndexIptv > 0) selectedIndexIptv--;
+        }
+      } else if (e.key === 'ArrowDown') {
+        if (inApps) {
+          inApps = false;
+          selectedIndexIptv = 0;
+        } else {
+          if (selectedIndexIptv + IPtvItemsPerRow < iptvCount) {
+            selectedIndexIptv += IPtvItemsPerRow;
+          }
+        }
+      } else if (e.key === 'ArrowUp') {
+        if (!inApps) {
+          if (selectedIndexIptv - IPtvItemsPerRow >= 0) {
+            selectedIndexIptv -= IPtvItemsPerRow;
+          } else {
+            inApps = true;
+          }
+        }
+      } else if (e.key === 'Enter') {
+        if (!inApps) toggleFullscreen();
+        else openItem();
+      }
+
+      updateSelection();
+    });
+
+    function openItem() {
+  try {
+    clickSound.play().catch(()=>{});
+    const appsItems = appRow.querySelectorAll('.item');
+    const sel = appsItems[selectedIndexApps];
+    if (!sel) return;
+    const action = sel.dataset.action || '';
+    // sacamos título alternativo desde el alt de la imagen si lo hay
+    const title = (sel.querySelector('img')?.alt || '').toLowerCase();
+
+    // Si es YouTube TV (o cualquier título que contenga "youtube tv"), pedimos fullscreen y navegamos
+    if (title.includes('youtube tv') || title.includes('youtubetv')) {
+      const elem = document.documentElement;
+      if (elem.requestFullscreen) elem.requestFullscreen();
+      else if (elem.webkitRequestFullscreen) elem.webkitRequestFullscreen();
+      else if (elem.msRequestFullscreen) elem.msRequestFullscreen();
+
+      // usar location.href para mantener la misma ventana (si quieres abrir nueva pestaña, usar window.open)
+      window.location.href = action;
+      return;
+    }
+
+    // URLs normales -> abrir en la misma ventana (si prefieres nueva pestaña usar window.open)
+    if (action.startsWith('http')) {
+      window.location.href = action;
+      return;
+    }
+
+    // Protocolo ES-DE
+    if (action.startsWith('es-de')) {
+      window.location.href = action;
+      return;
+    }
+
+    alert('Acción no reconocida: ' + action);
+  } catch (err) {
+    console.error('Error en openItem():', err);
+    alert('Error al ejecutar la acción. Mira la consola para más detalles.');
+  }
+}
+
+
+    function toggleFullscreen() {
+      if (document.fullscreenElement === video) {
+        document.exitFullscreen();
+      } else {
+        video.requestFullscreen().then(() => {
+          video.muted = false;
+          video.play().catch(()=>{});
+        }).catch(()=>{});
+      }
+    }
+
+    loadIptv(baseURL + 'canales.m3u');
+    updateSelection();
+  </script>
+</body>
+</html>
